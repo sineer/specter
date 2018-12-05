@@ -58,7 +58,7 @@
   (n/PosNavigator t-get-last t-update-last))
 
 #?(
-   :clj
+   :cljr
    (defn- select-keys-from-transient-map
      "Selects keys from transient map, because built-in select-keys uses
   `find` which is unsupported."

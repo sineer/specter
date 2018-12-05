@@ -1,35 +1,38 @@
 (ns com.rpl.specter
   #?(:cljs (:require-macros
             [com.rpl.specter
-              :refer
-              [late-bound-nav
-               late-bound-richnav
-               late-bound-collector
-               defcollector
-               defnav
-               defdynamicnav
-               dynamicnav
-               richnav
-               defrichnav
-               recursive-path
-               select
-               transform
-               setval
-               select-any]]
+             :refer
+             [late-bound-nav
+              late-bound-richnav
+              late-bound-collector
+              defcollector
+              defnav
+              defdynamicnav
+              dynamicnav
+              richnav
+              defrichnav
+              recursive-path
+              select
+              transform
+              setval
+              select-any]]
 
             [com.rpl.specter.util-macros :refer
-              [doseqres]]))
+             [doseqres]]))
   ;; workaround for cljs bug that emits warnings for vars named the same as a
   ;; private var in cljs.core (in this case `NONE`, added as private var to
   ;; cljs.core with 1.9.562)
   #?(:cljs (:refer-clojure :exclude [NONE]))
 
   (:use [com.rpl.specter.protocols :only [ImplicitNav RichNavigator]]
-    #?(:clj [com.rpl.specter.util-macros :only [doseqres]]))
+        #?(:clj [com.rpl.specter.util-macros :only [doseqres]]
+           :cljr [com.rpl.specter.util-macros :only [doseqres]]))
   (:require [com.rpl.specter.impl :as i]
             [com.rpl.specter.navs :as n]
-            #?(:clj [clojure.walk :as cljwalk])
-            #?(:clj [com.rpl.specter.macros :as macros])
+            #?(:clj [clojure.walk :as cljwalk]
+               :cljr [clojure.walk :as cljwalk])
+            #?(:clj [com.rpl.specter.macros :as macros]
+               :cljr [com.rpl.specter.macros :as macros])
             [clojure.set :as set]))
 
 (defn- static-path? [path]
@@ -48,10 +51,10 @@
             (first ret)
 
             :else
-            ret
-            ))))
+            ret))))
 
-#?(:clj
+
+#?(:cljr
    (do
 
      (defmacro defmacroalias [name target]
@@ -168,7 +171,7 @@
            ;; var-get doesn't work in cljs, so capture the val in the macro instead
            `(com.rpl.specter.impl/->VarUse
               ~path
-              ~(if-not (instance? Class (resolve path)) `(var ~path))
+              ~(if-not (instance? Object (resolve path)) `(var ~path))
               (quote ~path)))
 
 
@@ -236,9 +239,9 @@
        select/transform/setval/replace-in/etc. macros."
        [& path]
        (let [;;this is a hack, but the composition of &env is considered stable for cljs
-             platform (if (contains? &env :locals) :cljs :clj)
-             local-syms (if (= platform :cljs)
-                          (-> &env :locals keys set) ;cljs
+             ;;platform (if (contains? &env :locals) :cljs :clj)
+             local-syms ( ;;if (= platform :cljs)
+                          ;;(-> &env :locals keys set) ;cljs
                           (-> &env keys set)) ;clj
 
              used-locals (i/used-locals local-syms path)
@@ -246,9 +249,9 @@
              ;; note: very important to use riddley's macroexpand-all here, so that
              ;; &env is preserved in any potential nested calls to select (like via
              ;; a view function)
-             expanded (if (= platform :clj)
-                        (i/clj-macroexpand-all (vec path))
-                        (cljs-macroexpand-all &env (vec path)))
+             expanded (;;if (= platform :clj)
+                        (i/clj-macroexpand-all (vec path)))
+                        ;;(cljs-macroexpand-all &env (vec path)))
 
              prepared-path (ic-prepare-path local-syms expanded)
              possible-params (vec (ic-possible-params expanded))
@@ -259,7 +262,7 @@
 
              info-sym (gensym "info")
 
-             get-cache-code (if (= platform :clj)
+             get-cache-code (;;if (= platform :clj)
                               `(try (i/get-cell ~cache-sym)
                                     (catch ClassCastException e#
                                       ;; With AOT compilation it's possible for:
@@ -273,21 +276,21 @@
                                           (alter-var-root
                                            (var ~cache-sym)
                                            (fn [_#] (i/mutable-cell)))
-                                          nil))))
-                              cache-sym)
+                                          nil)))))
+                              ;;cache-sym)
 
-             add-cache-code (if (= platform :clj)
-                              `(i/set-cell! ~cache-sym ~info-sym)
-                              `(def ~cache-sym ~info-sym))
+             add-cache-code (;;if (= platform :clj)
+                              `(i/set-cell! ~cache-sym ~info-sym))
+                             ;; `(def ~cache-sym ~info-sym))
 
              precompiled-sym (gensym "precompiled")
 
              handle-params-code
-             (if (= platform :clj)
-               `(~precompiled-sym ~@used-locals)
-               `(~precompiled-sym ~possible-params))]
-         (if (= platform :clj)
-           (i/intern* *ns* cache-sym (i/mutable-cell)))
+             (;;if (= platform :clj)
+               `(~precompiled-sym ~@used-locals))]
+               ;;`(~precompiled-sym ~possible-params))]
+;;         (if (= platform :clj)
+         (i/intern* *ns* cache-sym (i/mutable-cell))
          `(let [info# ~get-cache-code
 
                 info#
@@ -468,9 +471,9 @@
            ~embed)))
 
     (defmacro end-fn [& args]
-      `(n/->SrangeEndFunction (fn ~@args)))
+      `(n/->SrangeEndFunction (fn ~@args)))))
 
-    ))
+
 
 
 
@@ -1189,39 +1192,39 @@
   ImplicitNav
   (implicit-nav [this] STAY))
 
-(extend-type #?(:clj clojure.lang.Keyword :cljs cljs.core/Keyword)
+(extend-type #?(:clj clojure.lang.Keyword :cljs cljs.core/Keyword :cljr clojure.lang.Keyword)
   ImplicitNav
   (implicit-nav [this] (n/keypath* this)))
 
-(extend-type #?(:clj clojure.lang.Symbol :cljs cljs.core/Symbol)
+(extend-type #?(:clj clojure.lang.Symbol :cljs cljs.core/Symbol :cljr clojure.lang.Keyword)
   ImplicitNav
   (implicit-nav [this] (n/keypath* this)))
 
-(extend-type #?(:clj String :cljs string)
+(extend-type #?(:clj String :cljs string :cljr String)
   ImplicitNav
   (implicit-nav [this] (n/keypath* this)))
 
-(extend-type #?(:clj Number :cljs number)
+(extend-type #?(:clj Number :cljs number :cljr Number)
   ImplicitNav
   (implicit-nav [this] (n/keypath* this)))
 
-(extend-type #?(:clj Character :cljs char)
+(extend-type #?(:clj Character :cljs char :cljr Character)
   ImplicitNav
   (implicit-nav [this] (n/keypath* this)))
 
-(extend-type #?(:clj Boolean :cljs boolean)
+(extend-type #?(:clj Boolean :cljs boolean :cljr Boolean)
   ImplicitNav
   (implicit-nav [this] (n/keypath* this)))
 
-(extend-type #?(:clj clojure.lang.AFn :cljs function)
+(extend-type #?(:clj clojure.lang.AFn :cljs function :cljr clojure.lang.AFn)
   ImplicitNav
   (implicit-nav [this] (pred this)))
 
-(extend-type #?(:clj clojure.lang.PersistentHashSet :cljs cljs.core/PersistentHashSet)
+(extend-type #?(:clj clojure.lang.PersistentHashSet :cljs cljs.core/PersistentHashSet :cljr clojure.lang.PersistentHashSet)
   ImplicitNav
   (implicit-nav [this] (pred this)))
 
-(extend-type #?(:clj java.util.regex.Pattern :cljs js/RegExp)
+(extend-type #?(:clj java.util.regex.Pattern :cljs js/RegExp :cljr System.Text.RegularExpressions.Regex)
   ImplicitNav
   (implicit-nav [this] (regex-nav this)))
 
