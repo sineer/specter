@@ -18,7 +18,8 @@
                :cljr [clojure.pprint :as pp])
             [clojure.string :as s]
             [clojure.walk :as walk]
-            #?(:clj [riddley.walk :as riddley]))
+            #?(:clj [riddley.walk :as riddley]
+               :cljr [riddley.walk :as riddley]))
 
   ;; TODO JP.
   #?(:clj (:import [com.rpl.specter Util MutableCell])))
@@ -67,8 +68,8 @@
      (let [platform (if (contains? &env :locals) :cljs :clj)]
        (if (= platform :clj)
          `(throw* Exception ~@args)
-         `(com.rpl.specter.impl/throw-illegal* ~@args)
-         )))
+         `(com.rpl.specter.impl/throw-illegal* ~@args))))
+
    :cljr
    (defmacro throw-illegal [& args]
      `(throw* Exception ~@args))
@@ -360,24 +361,24 @@
 (defn compiled-traverse* [path result-fn structure]
   (compiled-traverse-with-vals* path result-fn [] structure))
 
-(defn do-compiled-traverse* [apath structure]
-)
+(defn do-compiled-traverse* [apath structure])
+
 
 #?(
    :clj
    (defn- call-reduce-interface [^clojure.lang.IReduce traverser afn start]
-     (.reduce traverser afn start)
-     )
+     (.reduce traverser afn start))
+
    :cljr
    (defn- call-reduce-interface [^clojure.lang.IReduce traverser afn start]
      (.reduce traverser afn start))
 
    :cljs
    (defn- call-reduce-interface [^cljs.core/IReduce traverser afn start]
-     (-reduce traverser afn start)
-     ))
+     (-reduce traverser afn start)))
 
-(defn do-compiled-traverse [apath structure] )
+
+(defn do-compiled-traverse [apath structure])
 
 (defn compiled-traverse-all* [path]
   (fn [xf]
@@ -385,14 +386,14 @@
       ([] (xf))
       ([result] (xf result))
       ([result input]
-        (reduce
-          (fn [r i]
-            (xf r i))
-          result
-          ;; use this one to make sure reduced vals are propagated back
-          (do-compiled-traverse* path input)
-          )
-        ))))
+       (reduce
+         (fn [r i]
+           (xf r i))
+         result
+         ;; use this one to make sure reduced vals are propagated back
+         (do-compiled-traverse* path input))))))
+
+
 
 (defn compiled-select* [path structure]
   (let [res (mutable-cell (transient []))
@@ -436,14 +437,14 @@
 (defn compiled-select-any*
   ([path structure] (compiled-select-any* path [] structure))
   ([path vals structure]
-    (unreduced (compiled-traverse-with-vals* path reduced vals structure))))
+   (unreduced (compiled-traverse-with-vals* path reduced vals structure))))
 
 (defn compiled-select-first* [path structure]
   (let [ret (compiled-select-any* path structure)]
     (if (identical? ret NONE)
       nil
-      ret
-      )))
+      ret)))
+
 
 (defn compiled-selected-any?* [path structure]
   (not (identical? NONE (compiled-select-any* path structure))))
@@ -583,8 +584,8 @@
     (let [newss (next-fn (subs structure start end))]
       (str (subs structure 0 start)
            newss
-           (subs structure end (count structure))
-           ))
+           (subs structure end (count structure))))
+
     (let [structurev (vec structure)
           newpart (next-fn (-> structurev (subvec start end)))
           res (concat (subvec structurev 0 start)
@@ -592,8 +593,8 @@
                       (subvec structurev end (count structure)))]
       (if (vector? structure)
         (vec res)
-        res
-        ))))
+        res))))
+
 
 (defn- matching-indices [aseq p]
   (keep-indexed (fn [i e] (if (p e) i)) aseq))
@@ -729,8 +730,8 @@
   (fn [& args]
     (if (all-static? args)
       (apply afn args)
-      (->DynamicFunction afn args nil)
-      )))
+      (->DynamicFunction afn args nil))))
+
 
 (defn preserve-map [afn o]
   (if (or (list? o) (seq? o))
@@ -904,8 +905,8 @@
           (static-val-code o)
           ;; done this way so it's compatible with cljs as well (since this dynamic val will be
           ;; a possible param)
-          (resolve-arg-code (->DynamicVal (dynamic->code o)) possible-params)
-          )))
+          (resolve-arg-code (->DynamicVal (dynamic->code o)) possible-params))))
+
 
 (defn resolve-nav-code [o possible-params]
   (cond
@@ -972,10 +973,10 @@
        (when *DEBUG-INLINE-CACHING*
          (println "Produced code:")
          (pp/pprint code)
-         (println))
+         (println))))
 ;; TODO JP.
 ;       (binding [*ns* ns] (eval+ code))
-       ))
+
 
    :cljs
    (defn mk-dynamic-path-maker [resolved-code ns-str used-locals-list possible-params]

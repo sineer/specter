@@ -38,8 +38,8 @@
 (defn- static-path? [path]
   (if (sequential? path)
    (every? static-path? path)
-   (-> path i/dynamic-param? not)
-   ))
+   (-> path i/dynamic-param? not)))
+
 
 (defn wrap-dynamic-nav [f]
   (fn [& args]
@@ -698,8 +698,8 @@
     (let [m (meta structure)
           res (n/all-transform structure next-fn)]
       (if (some? res)
-        (with-meta res m)
-        ))))
+        (with-meta res m)))))
+
 
 (defnav
   ^{:doc "Navigate to each value of the map. This is more efficient than
@@ -815,8 +815,8 @@
         structure
         (if (nil? structure)
           #{newe}
-          (conj structure newe)
-          )))))
+          (conj structure newe))))))
+
 
 (defnav
   ^{:doc "Navigate to 'void' element before the sequence.
@@ -830,8 +830,8 @@
     (let [newe (next-fn NONE)]
       (if (identical? NONE newe)
         structure
-        (n/prepend-one structure newe)
-        ))))
+        (n/prepend-one structure newe)))))
+
 
 (defnav
   ^{:doc "Navigate to 'void' element after the sequence.
@@ -845,8 +845,8 @@
     (let [newe (next-fn NONE)]
       (if (identical? NONE newe)
         structure
-        (n/append-one structure newe)
-        ))))
+        (n/append-one structure newe)))))
+
 
 (defnav
   ^{:doc "Navigates to the specified subset (by taking an intersection).
@@ -904,8 +904,8 @@
                                       (if vs
                                         (do (i/update-cell! values-to-insert next)
                                             (first vs))
-                                        NONE
-                                        )))
+                                        NONE)))
+
                             structure)))))
 
 (defrichnav
@@ -917,18 +917,18 @@
   (select* [this vals structure next-fn]
     (if (contains? structure key)
       (next-fn vals key)
-      NONE
-      ))
+      NONE))
+
   (transform* [this vals structure next-fn]
     (if (contains? structure key)
       (let [newkey (next-fn vals key)
             dissoced (dissoc structure key)]
         (if (identical? NONE newkey)
           dissoced
-          (assoc dissoced newkey (get structure key))
-          ))
-      structure
-      )))
+          (assoc dissoced newkey (get structure key))))
+
+      structure)))
+
 
 (defrichnav
   ^{:doc "Navigates to the given element in the set only if it exists in the set.
@@ -938,18 +938,18 @@
   (select* [this vals structure next-fn]
     (if (contains? structure elem)
       (next-fn vals elem)
-      NONE
-      ))
+      NONE))
+
   (transform* [this vals structure next-fn]
     (if (contains? structure elem)
       (let [newelem (next-fn vals elem)
             removed (disj structure elem)]
         (if (identical? NONE newelem)
           removed
-          (conj removed newelem)
-          ))
-      structure
-      )))
+          (conj removed newelem)))
+
+      structure)))
+
 
 (def ^{:doc "Navigate to the specified keys one after another. If navigate to NONE,
              that element is removed from the map or vector."}
@@ -979,8 +979,8 @@
       (if (identical? NONE v)
         structure
         ;; TODO: make a more efficient impl
-        (setval (srange index index) [v] structure)
-        ))))
+        (setval (srange index index) [v] structure)))))
+
 
 (defrichnav
   ^{:doc "Navigates to the index of the sequence if within 0 and size. Transforms move element
@@ -990,8 +990,8 @@
   (select* [this vals structure next-fn]
     (if (and (>= i 0) (< i (count structure)))
       (next-fn vals i)
-      NONE
-      ))
+      NONE))
+
   (transform* [this vals structure next-fn]
     (if (and (>= i 0) (< i (count structure)))
       (let [newi (next-fn vals i)]
@@ -1004,22 +1004,22 @@
                                      s structure]
                                 (if (< j newi)
                                   s
-                                  (recur (dec j) (assoc s (inc j) (nth s j)))
-                                  ))
+                                  (recur (dec j) (assoc s (inc j) (nth s j)))))
+
                               (loop [j (inc i)
                                      s structure]
                                 (if (> j newi)
                                   s
-                                  (recur (inc j) (assoc s (dec j) (nth s j)))
-                                  )))]
-                (assoc shifted newi v)
-                )
-                (->> structure
-                     (setval (nthpath i) NONE)
-                     (setval (before-index newi) v)
-                     )))))
-      structure
-      )))
+                                  (recur (inc j) (assoc s (dec j) (nth s j))))))]
+
+                (assoc shifted newi v))
+
+              (->> structure
+                   (setval (nthpath i) NONE)
+                   (setval (before-index newi) v))))))
+
+      structure)))
+
 
 (defnav
   ^{:doc "Navigate to [index elem] pairs for each element in a sequence. The sequence will be indexed
@@ -1032,8 +1032,8 @@
     (let [i (i/mutable-cell (dec start))]
       (doseqres NONE [e structure]
         (i/update-cell! i inc)
-        (next-fn [(i/get-cell i) e])
-        )))
+        (next-fn [(i/get-cell i) e]))))
+
   (transform* [this structure next-fn]
     (let [indices (i/mutable-cell (-> structure count range))]
       (reduce
@@ -1047,15 +1047,15 @@
                (let [ii2 (next ii)]
                  (if (> newi curri)
                    (transform [ALL #(>= % (inc curri)) #(<= % newi)] dec ii2)
-                   ii2
-                   ))))
+                   ii2))))
+
            (->> s
                 (setval (nthpath curri) newe)
-                (setval (index-nav curri) newi)
-                )))
+                (setval (index-nav curri) newi))))
+
        structure
-       structure
-       ))))
+       structure))))
+
 
 (def
   ^{:doc "`indexed-vals` with a starting index of 0."}
@@ -1171,8 +1171,8 @@
     (select* [this structure next-fn]
       (next-fn (reduce late-fn (compiled-traverse late structure))))
     (transform* [this structure next-fn]
-      (next-fn (reduce late-fn (compiled-traverse late structure)))
-      )))
+      (next-fn (reduce late-fn (compiled-traverse late structure))))))
+
 
 (def
   ^{:doc "Keeps the element only if it matches the supplied predicate. Functions in paths
@@ -1275,8 +1275,8 @@
           ns (namespace structure)]
       (cond (keyword? structure) (keyword ns new-name)
             (symbol? structure) (symbol ns new-name)
-            :else (i/throw-illegal "NAME can only be used on symbols or keywords - " structure)
-            ))))
+            :else (i/throw-illegal "NAME can only be used on symbols or keywords - " structure)))))
+
 
 (defnav ^{:doc "Navigates to the namespace portion of the keyword or symbol"}
   NAMESPACE
@@ -1288,8 +1288,8 @@
           new-ns (next-fn (namespace structure))]
       (cond (keyword? structure) (keyword new-ns name)
             (symbol? structure) (symbol new-ns name)
-            :else (i/throw-illegal "NAMESPACE can only be used on symbols or keywords - " structure)
-            ))))
+            :else (i/throw-illegal "NAMESPACE can only be used on symbols or keywords - " structure)))))
+
 
 (defdynamicnav
   ^{:doc "Adds the result of running select with the given path on the
@@ -1333,11 +1333,11 @@
   [& path]
   (late-bound-richnav [late (late-path path)]
     (select* [this vals structure next-fn]
-      (i/exec-select* late [] structure (fn [_ structure] (next-fn vals structure)))
-      )
+      (i/exec-select* late [] structure (fn [_ structure] (next-fn vals structure))))
+
     (transform* [this vals structure next-fn]
-      (i/exec-transform* late [] structure (fn [_ structure] (next-fn vals structure))))
-      ))
+      (i/exec-transform* late [] structure (fn [_ structure] (next-fn vals structure))))))
+
 
 (defrichnav
   ^{:doc "Drops all collected values for subsequent navigation."}
@@ -1423,8 +1423,8 @@
            (let [res2 (i/exec-select* late2 vals structure next-fn)]
              (if (identical? NONE res1)
                res2
-               res1
-               )))))
+               res1)))))
+
      (transform* [this vals structure next-fn]
        (let [s1 (i/exec-transform* late1 vals structure next-fn)]
          (i/exec-transform* late2 vals s1 next-fn)))))
@@ -1451,16 +1451,16 @@
   walker
   (recursive-path [afn] p
     (cond-path (pred afn) STAY
-               coll? [ALL p]
-               )))
+               coll? [ALL p])))
+
 
 (def
   ^{:doc "Like `walker` but maintains metadata of any forms traversed."}
   codewalker
   (recursive-path [afn] p
     (cond-path (pred afn) STAY
-               coll? [ALL-WITH-META p]
-               )))
+               coll? [ALL-WITH-META p])))
+
 
 (let [empty->NONE (if-path empty? (terminal-val NONE))
       compact* (fn [nav] (multi-path nav empty->NONE))]
@@ -1468,5 +1468,4 @@
    "During transforms, after each step of navigation in subpath check if the
     value is empty. If so, remove that value by setting it to NONE."
    [& path]
-   (map compact* path)
-   ))
+   (map compact* path)))
