@@ -12,7 +12,7 @@
 
 (defn array-copy-of [array len]
   (let [new-array (i/fast-object-array len)]
-    ;; TODO JP...
+    ;; TODO JP... VALIDATE THIS WORKS AS EXPECTED!!!
     (Array/Copy array 0 new-array 0 len)))
 
 (defn not-selected?*

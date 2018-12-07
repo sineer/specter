@@ -21,8 +21,7 @@
             #?(:clj [riddley.walk :as riddley]
                :cljr [riddley.walk :as riddley]))
 
-  ;; TODO JP.
-  #?(:clj (:import [com.rpl.specter Util MutableCell])))
+  #?(:cljr (:import [com.rpl.specter Util MutableCell])))
 
 
 (def NONE ::NONE)
@@ -182,6 +181,7 @@
 
 (defn rich-nav? [n]
   #?(:clj (instance? com.rpl.specter.protocols.RichNavigator n)
+     :cljr (instance? com.rpl.specter.protocols.RichNavigator n)
      :cljs (satisfies? RichNavigator n)))
 
 (defn comp-paths* [p]
