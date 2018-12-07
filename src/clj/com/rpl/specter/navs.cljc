@@ -5,13 +5,15 @@
               [defnav defrichnav]]
             [com.rpl.specter.util-macros :refer
               [doseqres]]))
-  #?(:clj (:use [com.rpl.specter.macros :only [defnav defrichnav]]
-                [com.rpl.specter.util-macros :only [doseqres]]))
   #?(:cljr (:use [com.rpl.specter.macros :only [defnav defrichnav]]
                  [com.rpl.specter.util-macros :only [doseqres]]))
   (:require [com.rpl.specter.impl :as i]
-            #?(:clj [clojure.core.reducers :as r])))
+            #?(:cljr [clojure.core.reducers :as r])))
 
+(defn array-copy-of [array len]
+  (let [new-array (i/fast-object-array len)]
+    ;; TODO JP...
+    (Array/Copy array 0 new-array 0 len)))
 
 (defn not-selected?*
   [compiled-path vals structure]
@@ -29,7 +31,7 @@
     (next-fn e)))
 
 #?(
-   :clj
+   :cljr
    (defn queue? [coll]
      (instance? clojure.lang.PersistentQueue coll))
 
@@ -66,14 +68,165 @@
   (reduce
     (fn [res kv] (conj res (next-fn kv)))
     structure
-    structure
-    ))
+    structure))
+
+
+(extend-protocol AllTransformProtocol
+  nil
+  (all-transform [structure next-fn]
+    nil)
+
+
+  #?(:cljr clojure.lang.MapEntry)
+  #?(:cljr
+     (all-transform [structure next-fn]
+       (let [newk (next-fn (key structure))
+             newv (next-fn (val structure))]
+         (clojure.lang.MapEntry. newk newv))))
+
+
+  #?(:cljs cljs.core/MapEntry)
+  #?(:cljs
+     (all-transform [structure next-fn]
+       (let [newk (next-fn (key structure))
+             newv (next-fn (val structure))]
+         (cljs.core/->MapEntry newk newv nil))))
+
+  #?(:cljr clojure.lang.IPersistentVector :cljs cljs.core/PersistentVector)
+  (all-transform [structure next-fn]
+    (into []
+      (comp (map next-fn)
+            (filter not-NONE?))
+      structure))
+
+  #?(:cljr clojure.lang.PersistentHashSet :cljs cljs.core/PersistentHashSet)
+  (all-transform [structure next-fn]
+    (into #{}
+      (comp (map next-fn)
+            (filter not-NONE?))
+      structure))
+
+  #?(:cljr clojure.lang.PersistentArrayMap)
+  #?(:cljr
+     (all-transform [structure next-fn]
+       (let [k-it (.keyIterator structure)
+             v-it (.valIterator structure)
+             none-cell (i/mutable-cell 0)
+             len (.count structure)
+             array (i/fast-object-array (* 2 len))]
+         (loop [i 0
+                j 0]
+           (if (.hasNext k-it)
+             (let [k (.next k-it)
+                   v (.next v-it)
+                   newkv (next-fn [k v])]
+               (if (void-transformed-kv-pair? newkv)
+                (do
+                  (i/update-cell! none-cell inc)
+                  (recur (+ i 2) j))
+                (do
+                  (aset array j (nth newkv 0))
+                  (aset array (inc j) (nth newkv 1))
+                  (recur (+ i 2) (+ j 2)))))))
+         (let [none-count (i/get-cell none-cell)
+               array (if (not= 0 none-count)
+                       (array-copy-of array (int (* 2 (- len none-count))))
+                       array)]
+
+          (clojure.lang.PersistentArrayMap/createAsIfByAssoc array)))))
+
+
+  #?(:cljs cljs.core/PersistentArrayMap)
+  #?(:cljs
+     (all-transform [structure next-fn]
+       (non-transient-map-all-transform structure next-fn {})))
+
+
+  #?(:cljr clojure.lang.PersistentTreeMap :cljs cljs.core/PersistentTreeMap)
+  (all-transform [structure next-fn]
+    (non-transient-map-all-transform structure next-fn (empty structure)))
+
+  #?(:cljr clojure.lang.IRecord)
+  #?(:cljr
+     (all-transform [structure next-fn]
+       (all-transform-record structure next-fn)))
+
+  #?(:cljr clojure.lang.PersistentHashMap :cljs cljs.core/PersistentHashMap)
+  (all-transform [structure next-fn]
+    (persistent!
+      (reduce-kv
+        (fn [m k v]
+          (let [newkv (next-fn [k v])]
+            (if (void-transformed-kv-pair? newkv)
+              m
+              (assoc! m (nth newkv 0) (nth newkv 1)))))
+
+        (transient
+          #?(:cljr clojure.lang.PersistentHashMap/EMPTY :cljs cljs.core.PersistentHashMap.EMPTY))
+
+        structure)))
+
+
+
+  #?(:cljr Object)
+  #?(:cljr
+     (all-transform [structure next-fn]
+       (let [empty-structure (empty structure)]
+         (cond (and (list? empty-structure) (not (queue? empty-structure)))
+               (all-transform-list structure next-fn)
+
+               (map? structure)
+               ;; reduce-kv is much faster than doing r/map through call to (into ...)
+               (reduce-kv
+                 (fn [m k v]
+                   (let [newkv (next-fn [k v])]
+                     (if (void-transformed-kv-pair? newkv)
+                      m
+                      (assoc m (nth newkv 0) (nth newkv 1)))))
+
+                 empty-structure
+                 structure)
+
+
+               :else
+               (->> structure
+                    (r/map next-fn)
+                    (r/filter not-NONE?)
+                    (into empty-structure))))))
+
+
+  #?(:cljs default)
+  #?(:cljs
+     (all-transform [structure next-fn]
+       (if (record? structure)
+         ;; this case is solely for cljs since extending to IRecord doesn't work for cljs
+         (all-transform-record structure next-fn)
+         (let [empty-structure (empty structure)]
+           (cond
+             (and (list? empty-structure) (not (queue? empty-structure)))
+             (all-transform-list structure next-fn)
+
+             (map? structure)
+             (reduce-kv
+               (fn [m k v]
+                 (let [newkv (next-fn [k v])]
+                   (if (void-transformed-kv-pair? newkv)
+                    m
+                    (assoc m (nth newkv 0) (nth newkv 1)))))
+               empty-structure
+               structure)
+
+             :else
+             (into empty-structure
+                   (comp (map next-fn) (filter not-NONE?))
+                   structure)))))))
+
 
 
 (defprotocol MapTransformProtocol
   (map-vals-transform [structure next-fn])
-  (map-keys-transform [structure next-fn])
-  )
+  (map-keys-transform [structure next-fn]))
+
 
 
 
@@ -97,6 +250,140 @@
     empty-map
     structure))
 
+(extend-protocol MapTransformProtocol
+  nil
+  (map-vals-transform [structure next-fn]
+    nil)
+  (map-keys-transform [structure next-fn]
+    nil)
+
+
+  #?(:cljr clojure.lang.PersistentArrayMap)
+  #?(:cljr
+     (map-vals-transform [structure next-fn]
+       (let [k-it (.keyIterator structure)
+             v-it (.valIterator structure)
+             none-cell (i/mutable-cell 0)
+             len (.count structure)
+             array (i/fast-object-array (* 2 len))]
+         (loop [i 0
+                j 0]
+           (if (.hasNext k-it)
+             (let [k (.next k-it)
+                   v (.next v-it)
+                   newv (next-fn v)]
+               (if (identical? newv i/NONE)
+                (do
+                  (i/update-cell! none-cell inc)
+                  (recur (+ i 2) j))
+                (do
+                  (aset array j k)
+                  (aset array (inc j) newv)
+                  (recur (+ i 2) (+ j 2)))))))
+         (let [none-count (i/get-cell none-cell)
+               array (if (not= 0 none-count)
+                        (array-copy-of array (int (* 2 (- len none-count))))
+                        array)]
+
+          (clojure.lang.PersistentArrayMap. array)))))
+  #?(:cljr
+     (map-keys-transform [structure next-fn]
+       (let [k-it (.keyIterator structure)
+             v-it (.valIterator structure)
+             none-cell (i/mutable-cell 0)
+             len (.count structure)
+             array (i/fast-object-array (* 2 len))]
+         (loop [i 0
+                j 0]
+           (if (.hasNext k-it)
+             (let [k (.next k-it)
+                   v (.next v-it)
+                   newk (next-fn k)]
+               (if (identical? newk i/NONE)
+                (do
+                  (i/update-cell! none-cell inc)
+                  (recur (+ i 2) j))
+                (do
+                  (aset array j newk)
+                  (aset array (inc j) v)
+                  (recur (+ i 2) (+ j 2)))))))
+         (let [none-count (i/get-cell none-cell)
+               array (if (not= 0 none-count)
+                        (array-copy-of array (int (* 2 (- len none-count))))
+                        array)]
+
+          (clojure.lang.PersistentArrayMap/createAsIfByAssoc array)))))
+
+  #?(:cljs cljs.core/PersistentArrayMap)
+  #?(:cljs
+     (map-vals-transform [structure next-fn]
+       (map-vals-non-transient-transform structure {} next-fn)))
+  #?(:cljs
+     (map-keys-transform [structure next-fn]
+       (map-keys-non-transient-transform structure {} next-fn)))
+
+
+  #?(:cljr clojure.lang.PersistentTreeMap :cljs cljs.core/PersistentTreeMap)
+  (map-vals-transform [structure next-fn]
+    (map-vals-non-transient-transform structure (empty structure) next-fn))
+  (map-keys-transform [structure next-fn]
+    (map-keys-non-transient-transform structure (empty structure) next-fn))
+
+
+  #?(:cljr clojure.lang.PersistentHashMap :cljs cljs.core/PersistentHashMap)
+  (map-vals-transform [structure next-fn]
+    (persistent!
+      (reduce-kv
+        (fn [m k v]
+          (let [newv (next-fn v)]
+            (if (identical? newv i/NONE)
+              m
+              (assoc! m k newv))))
+        (transient
+          #?(:cljr clojure.lang.PersistentHashMap/EMPTY :cljs cljs.core.PersistentHashMap.EMPTY))
+
+        structure)))
+  (map-keys-transform [structure next-fn]
+    (persistent!
+      (reduce-kv
+        (fn [m k v]
+          (let [newk (next-fn k)]
+            (if (identical? newk i/NONE)
+              m
+              (assoc! m newk v))))
+        (transient
+          #?(:cljr clojure.lang.PersistentHashMap/EMPTY :cljs cljs.core.PersistentHashMap.EMPTY))
+
+        structure)))
+
+  #?(:cljr Object :cljs default)
+  (map-vals-transform [structure next-fn]
+    (reduce-kv
+      (fn [m k v]
+        (let [newv (next-fn v)]
+          (if (identical? newv i/NONE)
+            m
+            (assoc m k newv))))
+      (empty structure)
+      structure))
+  (map-keys-transform [structure next-fn]
+    (reduce-kv
+      (fn [m k v]
+        (let [newk (next-fn k)]
+          (if (identical? newk i/NONE)
+            m
+            (assoc m newk v))))
+      (empty structure)
+      structure)))
+
+(defn srange-select [structure start end next-fn]
+  (next-fn
+    (if (string? structure)
+      (subs structure start end)
+      (-> structure vec (subvec start end)))))
+
+
+(def srange-transform i/srange-transform*)
 
 
 (defn extract-basic-filter-fn [path]
@@ -138,8 +425,8 @@
   (append-all [structure elements])
   (prepend-all [structure elements])
   (append-one [structure elem])
-  (prepend-one [structure elem])
-  )
+  (prepend-one [structure elem]))
+
 
 (extend-protocol AddExtremes
   nil
@@ -158,16 +445,16 @@
   (prepend-all [structure elements]
     (let [ret (transient [])]
       (as-> ret <>
-        (reduce conj! <> elements)
-        (reduce conj! <> structure)
-        (persistent! <>))))
+            (reduce conj! <> elements)
+            (reduce conj! <> structure)
+            (persistent! <>))))
   (append-one [structure elem]
     (conj structure elem))
   (prepend-one [structure elem]
     (into [elem] structure))
 
 
-  #?(:clj Object :cljs default :cljr Object)
+  #?(:cljr Object :cljs default)
   (append-all [structure elements]
     (concat structure elements))
   (prepend-all [structure elements]
@@ -175,8 +462,8 @@
   (append-one [structure elem]
     (concat structure [elem]))
   (prepend-one [structure elem]
-    (cons elem structure))
-  )
+    (cons elem structure)))
+
 
 
 
@@ -243,8 +530,8 @@
           newv (afn val)]
       (if (identical? i/NONE newv)
         (subvec v 1)
-        (assoc v 0 newv)
-        )))
+        (assoc v 0 newv))))
+
 
   (update-last [v afn]
     ;; type-hinting vec-count to ^int caused weird errors with case
@@ -252,11 +539,11 @@
       (case c
         1 (let [[e] v
                 newe (afn e)]
-            (if (identical? i/NONE newe)
-              []
-              [newe]))
+               (if (identical? i/NONE newe)
+                 []
+                 [newe]))
         2 (let [[e1 e2] v
-                newe (afn e2)]
+                 newe (afn e2)]
             (if (identical? i/NONE newe)
               [e1]
               [e1 newe]))
@@ -280,16 +567,16 @@
           begins (subs s 0 last-idx)]
       (if (identical? i/NONE newl)
         begins
-        (str begins newl)
-        )))
+        (str begins newl))))
+
 
   #?(:cljs cljs.core/MapEntry)
   #?(:cljs
      (update-first [e afn]
-                   (cljs.core/->MapEntry (-> e key afn) (val e) nil)))
+       (cljs.core/->MapEntry (-> e key afn) (val e) nil)))
   #?(:cljs
      (update-last [e afn]
-                  (cljs.core/->MapEntry (key e) (-> e val afn) nil)))
+       (cljs.core/->MapEntry (key e) (-> e val afn) nil)))
 
   #?(:cljr Object :cljs default)
   (update-first [l val]
@@ -314,17 +601,17 @@
   #?(:cljs cljs.core/MapEntry)
   #?(:cljs
      (get-first [e]
-                (key e)))
+       (key e)))
   #?(:cljs
      (get-last [e]
-               (val e)))
+       (val e)))
 
   #?(:cljr String :cljs string)
   (get-first [s]
     (nth s 0))
   (get-last [s]
-    (nth s (-> s count dec))
-    ))
+    (nth s (-> s count dec))))
+
 
 
 
@@ -359,8 +646,8 @@
   (select* [this vals structure next-fn]
     (next-fn vals (get structure key)))
   (transform* [this vals structure next-fn]
-    (do-keypath-transform vals structure key next-fn)
-    ))
+    (do-keypath-transform vals structure key next-fn)))
+
 
 
 (defrichnav
@@ -388,7 +675,7 @@
       (let [newv (next-fn vals (nth structure i))]
         (if (identical? newv i/NONE)
           (i/srange-transform* structure i (inc i) (fn [_] []))
-            (assoc structure i newv)))
+          (assoc structure i newv)))
       (i/srange-transform* ; can make this much more efficient with alternate impl
         structure
         i
@@ -397,8 +684,8 @@
           (let [v (next-fn vals e)]
            (if (identical? v i/NONE)
              []
-             [v])
-           ))))))
+             [v])))))))
+
 
 (defrecord SrangeEndFunction [end-fn])
 
@@ -406,5 +693,4 @@
 (defn invoke-end-fn [end-fn structure start]
   (if (instance? SrangeEndFunction end-fn)
     ((:end-fn end-fn) structure start)
-    (end-fn structure)
-    ))
+    (end-fn structure)))

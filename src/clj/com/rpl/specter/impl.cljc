@@ -201,7 +201,7 @@
   (coerce-path [this]
     (coerce-object this))
 
-;  #?(:clj java.util.List :cljs cljs.core/PersistentVector :cljr System.Collections.IEnumerable)
+  #?(:clj java.util.List :cljs cljs.core/PersistentVector :cljr System.Collections.IEnumerable)
   (coerce-path [this]
     (do-comp-paths this))
 
@@ -221,7 +221,7 @@
   #?(:cljs (coerce-path [this]
                         (coerce-path (into [] this))))
 
-;  #?(:clj Object :cljs default :cljr Object)
+  #?(:clj Object :cljs default :cljr Object)
   (coerce-path [this]
     (coerce-object this)))
 
@@ -247,10 +247,10 @@
   nil
   (do-comp-paths [o]
     (coerce-path o))
-;  #?(:clj Object :cljs default :cljr Object)
+  #?(:clj Object :cljs default :cljr Object)
   (do-comp-paths [o]
     (coerce-path o))
-;  #?(:clj java.util.List :cljs cljs.core/PersistentVector :cljr System.Collections.IEnumerable)
+  #?(:clj java.util.List :cljs cljs.core/PersistentVector :cljr System.Collections.IEnumerable)
   (do-comp-paths [navigators]
     (let [coerced (map coerce-path navigators)]
       (cond (empty? coerced)
@@ -361,8 +361,24 @@
 (defn compiled-traverse* [path result-fn structure]
   (compiled-traverse-with-vals* path result-fn [] structure))
 
-(defn do-compiled-traverse* [apath structure])
+(defn do-compiled-traverse* [apath structure]
+  (reify #?(:clj clojure.lang.IReduce :cljs cljs.core/IReduce :cljr clojure.lang.IReduce)
+      (#?(:clj reduce :cljs -reduce :cljr reduce)
+        [this afn]
+        (#?(:clj .reduce :cljs -reduce :cljr .reduce) this afn (afn)))
+      (#?(:clj reduce :cljs -reduce :cljr reduce)
+        [this afn start]
+        (let [cell (mutable-cell start)]
+          (compiled-traverse*
+            apath
+            (fn [elem]
+              (let [curr (get-cell cell)
+                    newv (afn curr elem)]
+                (set-cell! cell newv)
+                newv)) ; to support reduced handling during traverse
 
+            structure)
+          (get-cell cell)))))
 
 #?(
    :clj
@@ -377,8 +393,16 @@
    (defn- call-reduce-interface [^cljs.core/IReduce traverser afn start]
      (-reduce traverser afn start)))
 
-
-(defn do-compiled-traverse [apath structure])
+(defn do-compiled-traverse [apath structure]
+  (let [traverser (do-compiled-traverse* apath structure)]
+    (reify #?(:clj clojure.lang.IReduce :cljs cljs.core/IReduce :cljr clojure.lang.IReduce)
+      (#?(:clj reduce :cljs -reduce :cljr reduce)
+        [this afn]
+        (#?(:clj .reduce :cljs -reduce :cljr .reduce) this afn (afn)))
+      (#?(:clj reduce :cljs -reduce :cljr reduce)
+        [this afn start]
+        (let [res (call-reduce-interface traverser afn start)]
+         (unreduced res))))))
 
 (defn compiled-traverse-all* [path]
   (fn [xf]
